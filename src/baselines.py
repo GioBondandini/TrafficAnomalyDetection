@@ -146,7 +146,7 @@ def stat_analysis(df):
 
 def feat_engineering(df):
     df = df.copy()
-    df["hour"] = df["data"].dt.hour
+    df["hour"] = df["ora_del_giorno"]
     df["dow"] = df["data"].dt.dayofweek
     g = df.groupby("chiave")["conteggio_veicoli"]
     df["lag_1h"] = g.shift(1)

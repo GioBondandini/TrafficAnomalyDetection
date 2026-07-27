@@ -25,11 +25,14 @@ Data is sourced from the [Bologna Open Data portal](https://opendata.comune.bolo
 |---|---|---|
 | `data` | datetime | Timestamp (hourly) |
 | `chiave` | int | Sensor ID |
+| `id_uni` | int | Detector station ID (can group multiple `chiave` directions) |
 | `nome_via` | str | Street name |
 | `direzione` | str | Traffic direction |
 | `longitudine` / `latitudine` | float | Sensor coordinates |
 | `conteggio_veicoli` | int | Hourly vehicle count (target) |
+| `ora` | int | Hour of day (0–23), raw column parsed from the source data |
 | `ora_del_giorno` | int | Hour of day (0–23) |
+| `timestamp` | datetime | Combined date + hour timestamp |
 | `fascia_oraria` | str | Time slot (morning / afternoon / …) |
 | `giorno_settimana` | str | Day of week |
 | `tipo_giorno` | str | Day type: feriale / weekend / festivo |
@@ -37,14 +40,18 @@ Data is sourced from the [Bologna Open Data portal](https://opendata.comune.bolo
 | `nome_festivita` | str | Holiday name (if applicable) |
 | `temperature_2m` | float | Air temperature (°C) |
 | `precipitation` | float | Precipitation (mm/h) |
+| `rain` | float | Rain amount (mm/h), raw Open-Meteo field |
 | `wind_speed_10m` | float | Wind speed (km/h) |
+| `weather_code` | int | Raw WMO weather code |
 | `pioggia` | bool | Rain flag |
-| `tempo` | str | Weather condition label |
+| `tempo` | str | Weather condition label (from `weather_code`) |
 | `accuratezza` | float | Sensor data quality score (%) |
 | `evento_traffico` | str | Event name (if applicable) |
 | `tipo_evento` | str | Event type (concert / sport / fair / …) |
 | `impatto_evento` | str | Expected traffic impact level |
+| `score_evento` | int | Numeric impact score derived from `impatto_evento` |
 | `eventi_sovrapposti` | int | Number of simultaneous events |
+| `data_giorno` | date | Calendar date (date part of `timestamp`) |
 | `data_str` | str | Date string (used for event filtering) |
 
 ## Anomaly types
@@ -80,13 +87,6 @@ TrafficAnomalyDetection/
 └── README.md
 ```
 
-## Setup
-
-```bash
-python -m venv traffic_venv
-source traffic_venv/bin/activate       # Windows: traffic_venv\Scripts\activate
-pip install -r requirements.txt
-```
 
 ## Usage
 
@@ -125,3 +125,19 @@ r3 = detect_event_response_anomaly(df)
 * **LightGBM regressor** — forecasting-based: residuals between predicted and actual counts are used as anomaly scores; hyperparameters are tuned via `lgb_grid_search`
 
 Feature engineering (`feat_engineering`) adds temporal lags, rolling means, and encodes categorical columns. Lags and rolling windows are computed per sensor (`groupby("chiave")`) to avoid data leakage across sensors.
+
+## Predictive analysis and results
+
+`notebooks/04_evaluation.ipynb` goes beyond the three retrospective detectors above and explores forecasting-based early warning.
+
+**Methodology**
+* **Interval forecasting**: three LightGBM quantile regressors (5th, 50th, 95th percentile) trained on lag, rolling-mean, and weather features; an hourly count is flagged as anomalous when it falls outside the [q05, q95] band.
+* **Evaluation**: point-forecast accuracy (RMSE, MAPE, R²) on the median model, plus precision/recall and average lead time obtained by aggregating the hourly flags to a monthly anomaly call and comparing against the retrospective trend detector.
+* Two further approaches are sketched for future work: an early-warning classifier on monthly trend features, and an event-impact regressor predicting the impact ratio of recurring events before they happen.
+
+**Results**
+* The median model explains traffic volume well (R² ≈ 0.94), but residuals show a systematic rush-hour bias (under-prediction at 7–9 and 16–18, over-prediction at night).
+* Feature importance is dominated by short-term lags and rolling means; weather features contribute comparatively little.
+* Aggregated monthly and compared against the retrospective detector, the method is conservative: precision ≈ 0.85 but recall ≈ 0.28, with an average lead time of ~27 days ahead of the retrospective heuristic.
+* Conclusion: quantile-interval forecasting is a useful complement to the retrospective detectors for genuine early warning, but recall is currently too low to replace them — see the notebook's conclusions section for details and next steps.
+
